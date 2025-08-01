@@ -7,7 +7,7 @@ import random
 from dotenv import load_dotenv
 
 load_dotenv()
-TOKEN = os.getenv("TOKEN")  # .env に TOKEN=xxxxx と書く
+TOKEN = os.getenv("TOKEN")  # .envにトークンを入れてください
 
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -27,7 +27,6 @@ def save_titles(data):
 
 def ensure_user_data(titles, user_id):
     if user_id not in titles:
-        # defaultがあればそれをコピー
         if "default" in titles:
             titles[user_id] = {
                 "b": titles["default"].get("b", []).copy(),
@@ -76,12 +75,32 @@ async def title_nick(interaction: discord.Interaction):
     a = titles[user_id]["current_a"]
     name = interaction.user.display_name
 
-    if b:
-        full_name = f"''{b}{name}''{a}"
+    combined = f"{b}{a}" if b or a else ""
+
+    if combined:
+        full_name = f"''{combined}''{name}"
     else:
-        full_name = f"{name}{a}"
+        full_name = name
 
     await interaction.response.send_message(f"あなたの称号付き名前は: **{full_name}** です！")
+
+@tree.command(name="title-list", description="登録されている称号の一覧を表示")
+async def title_list(interaction: discord.Interaction):
+    titles = load_titles()
+    user_id = str(interaction.user.id)
+    ensure_user_data(titles, user_id)
+
+    b_list = titles[user_id]["b"]
+    a_list = titles[user_id]["a"]
+
+    b_str = "\n".join(f"- {title}" for title in b_list) if b_list else "なし"
+    a_str = "\n".join(f"- {title}" for title in a_list) if a_list else "なし"
+
+    embed = discord.Embed(title=f"{interaction.user.display_name}さんの登録称号一覧", color=0x00ff00)
+    embed.add_field(name="前につける称号", value=b_str, inline=False)
+    embed.add_field(name="後につける称号", value=a_str, inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="add-title-b", description="名前の前に付ける称号を追加")
 @app_commands.describe(title="付けたい称号（例: 鋼の）")
@@ -112,6 +131,46 @@ async def add_title_a(interaction: discord.Interaction, title: str):
     titles[user_id]["a"].append(title)
     save_titles(titles)
     await interaction.response.send_message(f"称号「{title}」を後に付ける称号リストに追加しました。", ephemeral=True)
+
+@tree.command(name="settitle", description="称号を一括でセット（前称号と後称号）")
+@app_commands.describe(front_title="前につける称号", back_title="後につける称号")
+async def settitle(interaction: discord.Interaction, front_title: str, back_title: str):
+    titles = load_titles()
+    user_id = str(interaction.user.id)
+    ensure_user_data(titles, user_id)
+
+    titles[user_id]["current_b"] = front_title
+    titles[user_id]["current_a"] = back_title
+    save_titles(titles)
+
+    await interaction.response.send_message(f"称号をセットしました: ''{front_title}{back_title}''{interaction.user.display_name}")
+
+@tree.command(name="add-settitle", description="称号を一括で追加（前称号or後称号のどちらかに追加）")
+@app_commands.describe(title="追加したい称号", position="前か後かを選択")
+async def add_settitle(interaction: discord.Interaction, title: str, position: str):
+    titles = load_titles()
+    user_id = str(interaction.user.id)
+    ensure_user_data(titles, user_id)
+
+    pos = position.lower()
+    if pos not in ("b", "a", "前", "後"):
+        await interaction.response.send_message("positionは 'b'（前）か 'a'（後）を指定してください。", ephemeral=True)
+        return
+
+    if pos in ("b", "前"):
+        if title in titles[user_id]["b"]:
+            await interaction.response.send_message("その称号は既に前のリストにあります。", ephemeral=True)
+            return
+        titles[user_id]["b"].append(title)
+        save_titles(titles)
+        await interaction.response.send_message(f"称号「{title}」を前のリストに追加しました。", ephemeral=True)
+    else:
+        if title in titles[user_id]["a"]:
+            await interaction.response.send_message("その称号は既に後のリストにあります。", ephemeral=True)
+            return
+        titles[user_id]["a"].append(title)
+        save_titles(titles)
+        await interaction.response.send_message(f"称号「{title}」を後のリストに追加しました。", ephemeral=True)
 
 @bot.event
 async def on_ready():
